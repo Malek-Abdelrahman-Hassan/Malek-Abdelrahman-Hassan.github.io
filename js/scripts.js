@@ -6,6 +6,12 @@
 document.addEventListener('DOMContentLoaded', () => {
 
     // ==========================================
+    // UTILITY: Detect mobile/touch devices
+    // ==========================================
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+    // ==========================================
     // 1. PARTICLE CANVAS BACKGROUND
     // ==========================================
     const canvas = document.getElementById('particleCanvas');
@@ -19,7 +25,15 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.height = window.innerHeight;
     }
     resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            resizeCanvas();
+            initParticles();
+        }, 250);
+    });
 
     class Particle {
         constructor() {
@@ -30,17 +44,17 @@ document.addEventListener('DOMContentLoaded', () => {
             this.x = Math.random() * canvas.width;
             this.y = Math.random() * canvas.height;
             this.size = Math.random() * 1.5 + 0.5;
-            this.speedX = (Math.random() - 0.5) * 0.4;
-            this.speedY = (Math.random() - 0.5) * 0.4;
-            this.opacity = Math.random() * 0.5 + 0.1;
+            this.speedX = (Math.random() - 0.5) * 0.3;
+            this.speedY = (Math.random() - 0.5) * 0.3;
+            this.opacity = Math.random() * 0.4 + 0.1;
         }
 
         update() {
             this.x += this.speedX;
             this.y += this.speedY;
 
-            // Mouse interaction
-            if (mouse.x !== null) {
+            // Mouse interaction (desktop only)
+            if (!isTouch && mouse.x !== null) {
                 const dx = mouse.x - this.x;
                 const dy = mouse.y - this.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
@@ -51,7 +65,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // Wrap around
             if (this.x < 0) this.x = canvas.width;
             if (this.x > canvas.width) this.x = 0;
             if (this.y < 0) this.y = canvas.height;
@@ -68,20 +81,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function initParticles() {
         particles = [];
-        const count = Math.min(Math.floor((canvas.width * canvas.height) / 12000), 120);
+        // Fewer particles on mobile for performance
+        const maxCount = isMobile ? 30 : 100;
+        const count = Math.min(Math.floor((canvas.width * canvas.height) / (isMobile ? 25000 : 12000)), maxCount);
         for (let i = 0; i < count; i++) {
             particles.push(new Particle());
         }
     }
 
     function connectParticles() {
+        const maxDist = isMobile ? 80 : 120;
         for (let a = 0; a < particles.length; a++) {
             for (let b = a + 1; b < particles.length; b++) {
                 const dx = particles[a].x - particles[b].x;
                 const dy = particles[a].y - particles[b].y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < 120) {
-                    const opacity = (1 - dist / 120) * 0.15;
+                if (dist < maxDist) {
+                    const opacity = (1 - dist / maxDist) * 0.12;
                     ctx.beginPath();
                     ctx.strokeStyle = `rgba(0, 212, 255, ${opacity})`;
                     ctx.lineWidth = 0.5;
@@ -106,36 +122,43 @@ document.addEventListener('DOMContentLoaded', () => {
     initParticles();
     animateParticles();
 
-    window.addEventListener('resize', () => {
-        resizeCanvas();
-        initParticles();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        mouse.x = e.clientX;
-        mouse.y = e.clientY;
-    });
+    // Mouse tracking (desktop only)
+    if (!isTouch) {
+        document.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+    }
 
     // ==========================================
-    // 2. CURSOR GLOW EFFECT
+    // 2. CURSOR GLOW EFFECT (Desktop only)
     // ==========================================
     const cursorGlow = document.getElementById('cursorGlow');
 
-    document.addEventListener('mousemove', (e) => {
-        cursorGlow.style.left = e.clientX + 'px';
-        cursorGlow.style.top = e.clientY + 'px';
-    });
+    if (!isTouch && cursorGlow) {
+        document.addEventListener('mousemove', (e) => {
+            cursorGlow.style.left = e.clientX + 'px';
+            cursorGlow.style.top = e.clientY + 'px';
+        });
+    } else if (cursorGlow) {
+        cursorGlow.style.display = 'none';
+    }
 
     // ==========================================
     // 3. NAVBAR SCROLL EFFECT
     // ==========================================
     const navbar = document.getElementById('navbar');
-    let lastScroll = 0;
 
+    let ticking = false;
     window.addEventListener('scroll', () => {
-        const currentScroll = window.pageYOffset;
-        navbar.classList.toggle('scrolled', currentScroll > 50);
-        lastScroll = currentScroll;
+        if (!ticking) {
+            requestAnimationFrame(() => {
+                navbar.classList.toggle('scrolled', window.pageYOffset > 50);
+                updateActiveNav();
+                ticking = false;
+            });
+            ticking = true;
+        }
     });
 
     // Active nav link highlight
@@ -158,27 +181,50 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-
-    window.addEventListener('scroll', updateActiveNav);
     updateActiveNav();
 
     // ==========================================
-    // 4. MOBILE NAV TOGGLE
+    // 4. MOBILE NAV TOGGLE + OVERLAY
     // ==========================================
     const navToggle = document.getElementById('navToggle');
     const navLinksContainer = document.getElementById('navLinks');
+    const navOverlay = document.getElementById('navOverlay');
+
+    function openMobileNav() {
+        navToggle.classList.add('active');
+        navLinksContainer.classList.add('open');
+        if (navOverlay) navOverlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeMobileNav() {
+        navToggle.classList.remove('active');
+        navLinksContainer.classList.remove('open');
+        if (navOverlay) navOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+    }
 
     navToggle.addEventListener('click', () => {
-        navToggle.classList.toggle('active');
-        navLinksContainer.classList.toggle('open');
+        if (navLinksContainer.classList.contains('open')) {
+            closeMobileNav();
+        } else {
+            openMobileNav();
+        }
     });
 
-    // Close mobile nav on link click
+    // Close on overlay tap
+    if (navOverlay) {
+        navOverlay.addEventListener('click', closeMobileNav);
+    }
+
+    // Close on link click
     navLinksContainer.querySelectorAll('.nav-link').forEach(link => {
-        link.addEventListener('click', () => {
-            navToggle.classList.remove('active');
-            navLinksContainer.classList.remove('open');
-        });
+        link.addEventListener('click', closeMobileNav);
+    });
+
+    // Close on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeMobileNav();
     });
 
     // ==========================================
@@ -231,13 +277,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const scrollRevealElements = document.querySelectorAll('.scroll-reveal');
 
     const revealObserver = new IntersectionObserver((entries) => {
-        entries.forEach((entry, index) => {
+        entries.forEach((entry) => {
             if (entry.isIntersecting) {
-                // Stagger animations within the same section
                 const siblings = entry.target.parentElement.querySelectorAll('.scroll-reveal');
                 let delay = 0;
                 siblings.forEach((sib, i) => {
-                    if (sib === entry.target) delay = i * 100;
+                    if (sib === entry.target) delay = Math.min(i * 80, 400);
                 });
                 setTimeout(() => {
                     entry.target.classList.add('revealed');
@@ -246,8 +291,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }, {
-        threshold: 0.1,
-        rootMargin: '0px 0px -60px 0px'
+        threshold: 0.05,
+        rootMargin: '0px 0px -40px 0px'
     });
 
     scrollRevealElements.forEach(el => revealObserver.observe(el));
@@ -267,7 +312,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }, {
-        threshold: 0.3
+        threshold: 0.2
     });
 
     skillFills.forEach(fill => skillObserver.observe(fill));
@@ -280,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const target = document.querySelector(this.getAttribute('href'));
             if (target) {
-                const navHeight = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-height'));
+                const navHeight = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-height')) || 72;
                 const targetPosition = target.offsetTop - navHeight;
                 window.scrollTo({
                     top: targetPosition,
@@ -291,7 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ==========================================
-    // 10. CONTACT FORM HANDLER
+    // 9. CONTACT FORM HANDLER
     // ==========================================
     const contactForm = document.getElementById('contactForm');
 
@@ -333,32 +378,33 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ==========================================
-    // 11. TILT EFFECT ON CARDS
+    // 10. TILT EFFECT ON CARDS (Desktop only)
     // ==========================================
-    const tiltCards = document.querySelectorAll('.project-card, .activity-card-full');
+    if (!isTouch) {
+        const tiltCards = document.querySelectorAll('.project-card, .activity-card-full');
 
-    tiltCards.forEach(card => {
-        card.addEventListener('mousemove', (e) => {
-            const rect = card.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            const centerX = rect.width / 2;
-            const centerY = rect.height / 2;
-            const rotateX = ((y - centerY) / centerY) * -3;
-            const rotateY = ((x - centerX) / centerX) * 3;
+        tiltCards.forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const centerX = rect.width / 2;
+                const centerY = rect.height / 2;
+                const rotateX = ((y - centerY) / centerY) * -3;
+                const rotateY = ((x - centerX) / centerX) * 3;
 
-            card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-4px)`;
+                card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-4px)`;
+            });
+
+            card.addEventListener('mouseleave', () => {
+                card.style.transform = '';
+            });
         });
-
-        card.addEventListener('mouseleave', () => {
-            card.style.transform = '';
-        });
-    });
+    }
 
     // ==========================================
-    // 12. PAGE LOAD OPTIMIZATION
+    // 11. PAGE LOAD OPTIMIZATION
     // ==========================================
-    // Reduce particle animation when page is not visible
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             cancelAnimationFrame(animationId);
